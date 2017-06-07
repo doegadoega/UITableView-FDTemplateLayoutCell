@@ -28,22 +28,10 @@
 - (CGFloat)fd_systemFittingHeightForConfiguratedCell:(UITableViewCell *)cell {
     CGFloat contentViewWidth = CGRectGetWidth(self.frame);
     
-    CGRect cellBounds = cell.bounds;
-    cellBounds.size.width = contentViewWidth;
-    cell.bounds = cellBounds;
-    
-    CGFloat rightSystemViewsWidth = 0.0;
-    for (UIView *view in self.subviews) {
-        if ([view isKindOfClass:NSClassFromString(@"UITableViewIndex")]) {
-            rightSystemViewsWidth = CGRectGetWidth(view.frame);
-            break;
-        }
-    }
-    
     // If a cell has accessory view or system accessory type, its content view's width is smaller
     // than cell's by some fixed values.
     if (cell.accessoryView) {
-        rightSystemViewsWidth += 16 + CGRectGetWidth(cell.accessoryView.frame);
+        contentViewWidth -= 16 + CGRectGetWidth(cell.accessoryView.frame);
     } else {
         static const CGFloat systemAccessoryWidths[] = {
             [UITableViewCellAccessoryNone] = 0,
@@ -52,15 +40,8 @@
             [UITableViewCellAccessoryCheckmark] = 40,
             [UITableViewCellAccessoryDetailButton] = 48
         };
-        rightSystemViewsWidth += systemAccessoryWidths[cell.accessoryType];
+        contentViewWidth -= systemAccessoryWidths[cell.accessoryType];
     }
-    
-    if ([UIScreen mainScreen].scale >= 3.0) {
-        rightSystemViewsWidth += 4;
-    }
-    
-    contentViewWidth -= rightSystemViewsWidth;
-
     
     // If not using auto layout, you have to override "-sizeThatFits:" to provide a fitting size by yourself.
     // This is the same height calculation passes used in iOS8 self-sizing cell's implementation.
@@ -75,39 +56,12 @@
     if (!cell.fd_enforceFrameLayout && contentViewWidth > 0) {
         // Add a hard width constraint to make dynamic content views (like labels) expand vertically instead
         // of growing horizontally, in a flow-layout manner.
-        NSLayoutConstraint *widthFenceConstraint = [NSLayoutConstraint constraintWithItem:cell.contentView attribute:NSLayoutAttributeWidth relatedBy:NSLayoutRelationEqual toItem:nil attribute:NSLayoutAttributeNotAnAttribute multiplier:1.0 constant:contentViewWidth];
-
-        // [bug fix] after iOS 10.3, Auto Layout engine will add an additional 0 width constraint onto cell's content view, to avoid that, we add constraints to content view's left, right, top and bottom.
-        static BOOL isSystemVersionEqualOrGreaterThen10_2 = NO;
-        static dispatch_once_t onceToken;
-        dispatch_once(&onceToken, ^{
-            isSystemVersionEqualOrGreaterThen10_2 = [UIDevice.currentDevice.systemVersion compare:@"10.2" options:NSNumericSearch] != NSOrderedAscending;
-        });
+        CGSize fittingSize = UILayoutFittingCompressedSize;
+        fittingSize.width = contentViewWidth;
+        fittingSize = [cell.contentView systemLayoutSizeFittingSize:fittingSize withHorizontalFittingPriority:UILayoutPriorityRequired verticalFittingPriority:UILayoutPriorityFittingSizeLevel];
         
-        NSArray<NSLayoutConstraint *> *edgeConstraints;
-        if (isSystemVersionEqualOrGreaterThen10_2) {
-            // To avoid confilicts, make width constraint softer than required (1000)
-            widthFenceConstraint.priority = UILayoutPriorityRequired - 1;
-            
-            // Build edge constraints
-            NSLayoutConstraint *leftConstraint = [NSLayoutConstraint constraintWithItem:cell.contentView attribute:NSLayoutAttributeLeft relatedBy:NSLayoutRelationEqual toItem:cell attribute:NSLayoutAttributeLeft multiplier:1.0 constant:0];
-            NSLayoutConstraint *rightConstraint = [NSLayoutConstraint constraintWithItem:cell.contentView attribute:NSLayoutAttributeRight relatedBy:NSLayoutRelationEqual toItem:cell attribute:NSLayoutAttributeRight multiplier:1.0 constant:-rightSystemViewsWidth];
-            NSLayoutConstraint *topConstraint = [NSLayoutConstraint constraintWithItem:cell.contentView attribute:NSLayoutAttributeTop relatedBy:NSLayoutRelationEqual toItem:cell attribute:NSLayoutAttributeTop multiplier:1.0 constant:0];
-            NSLayoutConstraint *bottomConstraint = [NSLayoutConstraint constraintWithItem:cell.contentView attribute:NSLayoutAttributeBottom relatedBy:NSLayoutRelationEqual toItem:cell attribute:NSLayoutAttributeBottom multiplier:1.0 constant:0];
-            edgeConstraints = @[leftConstraint, rightConstraint, topConstraint, bottomConstraint];
-            [cell addConstraints:edgeConstraints];
-        }
-        
-        [cell.contentView addConstraint:widthFenceConstraint];
-
         // Auto layout engine does its math
-        fittingHeight = [cell.contentView systemLayoutSizeFittingSize:UILayoutFittingCompressedSize].height;
-        
-        // Clean-ups
-        [cell.contentView removeConstraint:widthFenceConstraint];
-        if (isSystemVersionEqualOrGreaterThen10_2) {
-            [cell removeConstraints:edgeConstraints];
-        }
+        fittingHeight = fittingSize.height+1;
         
         [self fd_debugLog:[NSString stringWithFormat:@"calculate using system fitting size (AutoLayout) - %@", @(fittingHeight)]];
     }
